@@ -1,4 +1,4 @@
-create or replace package pe_cron_job
+﻿create or replace package pe_cron_job
 is
   
   -- Точка отсчета времени следующего запуска.
@@ -269,11 +269,11 @@ is
     l_n binary_integer;
   begin
     if p_nb is null then
-      throw('1', 'Числовое значение ожидается в интервале ' || p_min || ' .. ' || p_max || '.');
+      throw(1, 'Числовое значение ожидается в интервале ' || p_min || ' .. ' || p_max || '.');
     end if;
     l_n := to_char(p_nb, 'fm99999999999999990');
     if l_n < p_min or l_n > p_max then
-      throw('1', 'Числовое значение (' || l_n || ') за границами интервала ' || p_min || ' .. ' || p_max);
+      throw(2, 'Числовое значение (' || l_n || ') за границами интервала ' || p_min || ' .. ' || p_max);
     end if;
     p_nb := '';
     return l_n;
@@ -317,7 +317,7 @@ is
           end loop;
           l_s := null; l_e := null;
         else
-          throw(1, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
+          throw(3, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
         end if;
       elsif p_st = '-' then -- (min .. max)-(min .. max)(/, )
         if p_c in ('/', ',', ' ') then
@@ -329,7 +329,7 @@ is
             l_s := null; l_e := null;
           end if;
         else
-          throw(1, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
+          throw(4, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
         end if;
       elsif p_st = ',' then -- (min .. max),(min .. max)(/-,# )
         if p_c in ('/', '-', ',', '#', ' ') then
@@ -338,14 +338,14 @@ is
             l_seq_t(l_s) := ''; l_s := null;
           end if;
         else
-          throw(1, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
+          throw(5, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
         end if;
       elsif p_st = 'L' then -- (1 .. 7)L, L(-1 .. -31), L, LW, LH
         if p_c in ('W', 'H') then -- LW, LW
           if p_sup = 'M' then
             p_opt.typ := 'ML' || p_c;
           else
-            throw(2, 'Выражение (' || p_st || p_c || ') не поддерживается в этой позиции.');
+            throw(6, 'Выражение (' || p_st || p_c || ') не поддерживается в этой позиции.');
           end if;
         elsif p_c = ' ' then
           if l_nb is null then -- (1 .. 7)L, L
@@ -354,18 +354,18 @@ is
             elsif p_sup = 'W' then
               p_opt.day := l_s; l_s := null;
             else
-              throw(2, 'Опция (' || p_st || ') не верна здесь.');
+              throw(7, 'Опция (' || p_st || ') не верна здесь.');
             end if;
           else -- L(-1 .. -30)           
             if l_s is null and p_sup = 'M' then
               p_opt.val := get_num(l_nb, -30, -1);
             else
-              throw(2, 'Опция (' || p_st || ') не верна здесь.');
+              throw(8, 'Опция (' || p_st || ') не верна здесь.');
             end if;
           end if;
           p_opt.typ := p_sup || 'L';
         else
-          throw(1, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
+          throw(9, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
         end if;
       elsif p_st = '#' then -- (1..7)#(1..5)
         if p_sup = 'W' and p_c = ' ' then
@@ -373,7 +373,7 @@ is
           p_opt.day := l_s; l_s := null;
           p_opt.typ := 'W#';
         else
-          throw(2, 'Опция (' || p_st || ') не верна здесь.');
+          throw(10, 'Опция (' || p_st || ') не верна здесь.');
         end if;
       elsif p_st in ('W', 'H') then -- (1 .. 31)W, (1 .. 31)H
         if p_c = ' ' then
@@ -381,10 +381,10 @@ is
             p_opt.val := get_num(l_nb, 1, 31);
             p_opt.typ := 'M' || p_st;
           else
-            throw(2, 'Опция (' || p_st || ') не верна здесь.');
+            throw(11, 'Опция (' || p_st || ') не верна здесь.');
           end if;
         else
-          throw(2, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
+          throw(12, 'Непредвиденный символ (' || p_c || ') после (' || p_st || ').');
         end if;
       elsif p_st is null then
         if p_c in ('/', '-', ',', ' ') then
@@ -408,7 +408,7 @@ is
           if p_sup = 'W' then
             l_s := get_num(l_nb, 1, 7);
           else
-            throw(3, 'Непредвиденный символ (' || p_c || ').');
+            throw(13, 'Непредвиденный символ (' || p_c || ').');
           end if;
         end if;
       end if;
@@ -432,7 +432,7 @@ is
       for i in 1 .. length(l_val) loop
         l_c := substr(l_val, i, 1);
         if instr(c_alphabet, l_c) = 0 then
-          throw(1, 'Обнаружен недопустимый символ (' || l_c || ').');
+          throw(14, 'Обнаружен недопустимый символ (' || l_c || ').');
         end if;
         if l_st = 'L' and l_c = '-' or instr(c_num, l_c) > 0 then
           l_nb := l_nb || l_c;
@@ -577,7 +577,7 @@ is
     l_week_day_seq_t te_seq_t; l_week_day_opt te_opt;
     l_year_seq_t te_seq_t; l_year_opt te_opt;
     l_date date := p_date + c_sec;
-    l_max_date date;
+    l_last_day date;
     l_week_day_ pls_integer;
     l_date_ date;
     l_day_ pls_integer;
@@ -621,7 +621,7 @@ is
       return null;
     end if;
     if not p_month_day = '?' and not p_week_day = '?' then
-      throw(1, 'Одновременное задание дня недели и дня месяца не возможно.');
+      throw(15, 'Одновременное задание дня недели и дня месяца не возможно.');
     elsif not p_month_day = '?' then
       l_sup := 'M';
     elsif not p_week_day = '?' then
@@ -633,25 +633,26 @@ is
     l_month_day_seq_t := parse(p_month_day, 1, 31, l_month_day_opt, p_sup => 'M', p_sc => ',-/LWH');
     l_month_seq_t := parse(p_month, 1, 12, l_month_opt);
     l_week_day_seq_t := parse(p_week_day, 1, 7, l_week_day_opt, p_sup => 'W', p_sc => ',-/L#');
-    l_year_seq_t := parse(nvl(p_year, '*'), 1970, 2099, l_year_opt);
+    l_year_seq_t := parse(nvl(p_year, '*'), 1, 9999, l_year_opt);
     -- Разделение даты на компоненты.
     split(l_date, l_year, l_month, l_day, l_hour, l_minute, l_second);
     loop
       if l_level = 1 then -- Год.
-        l_level := 2;
-        if l_year > 2099 or l_year < 1970 then
+        if l_year > 9999 or l_year < 1 then
           return null;
         end if;
         if not l_year_seq_t.exists(-1) and not l_year_seq_t.exists(l_year) then
           l_year := l_year_seq_t.next(l_year);
           if l_year is null then
             return null;
+          else
+            reset(1);
           end if;
         end if;
+        l_level := 2;
       end if;
       
       if l_level = 2 then -- Месяц.
-        l_level := 3;
         if l_month > 12 then
           l_year := l_year + 1; reset(1); continue;
         end if;
@@ -659,22 +660,24 @@ is
           l_month := l_month_seq_t.next(l_month);
           if l_month is null then
             l_year := l_year + 1; reset(1); continue;
+          else
+            reset(2);
           end if;
         end if;
         l_date := combine(l_year, l_month, l_day, 0, 0, 0);
-        l_max_date := last_day(l_date);
+        l_last_day := last_day(l_date);
+        l_level := 3;
       end if;
       
       if l_level = 3 then -- День.
-        l_level := 4;
-        if l_date > l_max_date then
+        if l_date > l_last_day then
           l_month := l_month + 1; reset(2); continue;
         end if;
         if l_month_day_opt.typ = 'ML' then -- Последний день месяца (со смещением).
-          l_date_ := l_max_date + nvl(l_month_opt.val, 0);
+          l_date_ := l_last_day + nvl(l_month_opt.val, 0);
           l_day := to_char(l_date_, 'dd');
         elsif l_month_day_opt.typ in ('MLW', 'MLH') or l_week_day_opt.typ = 'WL' then -- Последний в месяце рабочий день, выходной или заданный день недели.
-          l_date_ := l_max_date;
+          l_date_ := l_last_day;
           if l_week_day_opt.typ = 'WL' then
             l_week_day_ := week_day(l_date_);
           end if;
@@ -711,7 +714,7 @@ is
                 end if;
               end if;
             end if;
-            exit when l_date_ > l_max_date or
+            exit when l_date_ > l_last_day or
                       l_month_day_opt.typ = 'MW' and get_date_type(l_date, p_calendar_id => p_calendar_id) = 'W' or
                       l_month_day_opt.typ = 'MH' and get_date_type(l_date, p_calendar_id => p_calendar_id) = 'H' or
                       l_week_day_opt.typ  = 'W#' and l_week_day_# = l_week_day_opt.val;
@@ -731,7 +734,7 @@ is
           l_week_day_ := week_day(l_date_);
           if not l_week_day_seq_t.exists(l_week_day_) then
             loop
-              exit when l_date_ > l_max_date or l_week_day_seq_t.exists(l_week_day_);
+              exit when l_date_ > l_last_day or l_week_day_seq_t.exists(l_week_day_);
               l_date_ := l_date_ + 1;
               l_day := l_day + 1;
               l_week_day_ := week_day_next(l_week_day_);
@@ -739,18 +742,16 @@ is
           end if;
         end if;
         
-        if l_date_ < l_date or l_date_ > l_max_date then
+        if l_date_ < l_date or l_date_ > l_last_day then
           l_month := l_month + 1; reset(2); continue;
-        else
-          if l_date_ > l_date then
-            reset(3);
-          end if;
-          l_date := l_date_;
+        elsif l_date_ > l_date then
+          reset(3);
         end if;
+        l_date := l_date_;
+        l_level := 4;
       end if;
       
-      if l_level = 4 then -- Hour.
-        l_level := 5;
+      if l_level = 4 then -- Час.
         if l_hour > 23 then
           l_day := l_day + 1; l_date := l_date + 1; reset(3); continue;
         end if;
@@ -758,12 +759,14 @@ is
           l_hour := l_hour_seq_t.next(l_hour);
           if l_hour is null then
             l_day := l_day + 1; l_date := l_date + 1; reset(3); continue;
+          else
+            reset(4);
           end if;
         end if;
+        l_level := 5;
       end if;
       
-      if l_level = 5 then -- Minute.
-        l_level := 6;
+      if l_level = 5 then -- Минута.
         if l_minute > 59 then
           l_hour := l_hour + 1; reset(4); continue;
         end if;
@@ -771,12 +774,14 @@ is
           l_minute := l_minute_seq_t.next(l_minute);
           if l_minute is null then
             l_hour := l_hour + 1; reset(4); continue;
+          else
+            reset(5);
           end if;
         end if;
+        l_level := 6;
       end if;
       
-      if l_level = 6 then -- Second.
-        l_level := 0;
+      if l_level = 6 then -- Секунда.
         if l_second > 59 then
           l_minute := l_minute + 1; reset(5); continue;
         end if;
@@ -786,6 +791,7 @@ is
             l_minute := l_minute + 1; reset(5); continue;
           end if;
         end if;
+        l_level := 0;
       end if;
       
       if l_level = 0 then
@@ -809,7 +815,7 @@ is
     for i in 1 .. 7 loop
       if l_s is null then
         if i < 7 then
-          throw(1, 'Неожиданный конец выражения.');
+          throw(16, 'Неожиданный конец выражения.');
         end if;
         l_cron_t(i) := '';
       else
@@ -1080,7 +1086,7 @@ is
   is
   begin
     if not dbms_job.is_jobq() then
-      throw(3, 'Процедура может выполняться только из очереди заданий.');
+      throw(17, 'Процедура может выполняться только из очереди заданий.');
     end if;
     return g_next_date;
   end;
@@ -1093,7 +1099,7 @@ is
   is
   begin
     if not dbms_job.is_jobq() then
-      throw(3, 'Процедура может выполняться только из очереди заданий.');
+      throw(18, 'Процедура может выполняться только из очереди заданий.');
     end if;
     g_next_date := p_next_date;
   end;
@@ -1113,7 +1119,7 @@ is
     l_broken boolean;
   begin
     if not dbms_job.is_jobq() then
-      throw(3, 'Процедура может выполняться только из очереди заданий.');
+      throw(19, 'Процедура может выполняться только из очереди заданий.');
     end if;
     cleanup(); -- Очистка прерванных сессий.
     l_cron_job.usid := dbms_session.unique_session_id;
@@ -1253,6 +1259,7 @@ is
     end loop;
   exception
     when others then -- Критическая ошибка процесса.
+      rollback;
       p_next_date := sysdate + c_critical_rerun_delay;
   end;
   
@@ -1269,7 +1276,7 @@ is
       select * into l_cron_job from t_cron_job where id = p_id;
     exception
       when no_data_found then
-        throw(3, 'Задание (' || p_id || ') не найдено.');
+        throw(20, 'Задание (' || p_id || ') не найдено.');
     end;
     return l_cron_job;
   end;
