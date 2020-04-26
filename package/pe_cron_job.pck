@@ -948,7 +948,7 @@ is
                  and uj.priv_user = c_schema
                  and uj.schema_user = c_schema
                  and regexp_like(uj.what, c_what_regex)
-                 and uj.what = c_schema || '.pe_cron_job.run(' || j.id (+) || ', next_date, broken);'
+                 and uj.what = c_schema || '.pe_cron_job.run(' || to_char(j.id (+)) || ', next_date, broken);'
                  and j.id is null)
     loop     
       begin
@@ -1044,6 +1044,32 @@ is
   end;
   
   /**
+   * Получить строку задания.
+   * @param p_id Идентификатор задания.
+   * @param p_throw Исключение при отсутствии задании.
+   * @param p_lock Блокировать задание.
+   * @return Строка задания.
+   */
+  function get(p_id in number, p_throw in boolean default true, p_lock in boolean default false) return t_cron_job%rowtype
+  is
+    l_cron_job t_cron_job%rowtype;
+  begin
+    begin
+      if nvl(p_lock, false) then
+        select * into l_cron_job from t_cron_job where id = p_id for update;
+      else
+        select * into l_cron_job from t_cron_job where id = p_id;
+      end if;
+    exception
+      when no_data_found then
+        if nvl(p_throw, true) then
+          throw(20, 'Задание (' || p_id || ') не найдено.');
+        end if;
+    end;
+    return l_cron_job;
+  end;
+  
+  /**
    * Задание синхронизации.
    */
   procedure sync
@@ -1057,15 +1083,7 @@ is
     for job in (select * from t_cron_job) loop
       if sync_job(job, p_only_check => true) then
         begin
-          begin
-            select *
-              into l_cron_job
-              from t_cron_job 
-             where id = job.id for update;
-          exception
-            when no_data_found then
-              l_cron_job := null;
-          end;
+          l_cron_job := get(job.id, p_throw => false, p_lock => true);
           if not l_cron_job.id is null then
             sync_job(l_cron_job);
             commit;
@@ -1261,24 +1279,6 @@ is
     when others then -- Критическая ошибка процесса.
       rollback;
       p_next_date := sysdate + c_critical_rerun_delay;
-  end;
-  
-  /**
-   * Получить строку задания.
-   * @param p_id Идентификатор задания.
-   * @return Строка задания.
-   */
-  function get(p_id in number) return t_cron_job%rowtype
-  is
-    l_cron_job t_cron_job%rowtype;
-  begin
-    begin
-      select * into l_cron_job from t_cron_job where id = p_id;
-    exception
-      when no_data_found then
-        throw(20, 'Задание (' || p_id || ') не найдено.');
-    end;
-    return l_cron_job;
   end;
   
   /**
