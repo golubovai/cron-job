@@ -52,12 +52,14 @@ alter table t_jour_line_ext add constraint jrleet_pk primary key (line_id);
 
 create table t_jour_tab ( 
   id number(8) not null, 
-  obj# number not null 
+  obj# number not null,
+  seq number not null default 0
 ) logging;
 
 comment on table t_jour_tab is 'Таблица журнала';
 comment on column t_jour_tab.id is 'Идентификатор';
 comment on column t_jour_tab.obj# is 'Идентификатор объекта';
+comment on column t_jour_tab.seq is 'Максимальная позиция колонки';
 
 create unique index jrtb_oj_unq on t_jour_tab(obj# asc) logging;
 create unique index jrtb_pk on t_jour_tab(id asc) logging ;
@@ -82,7 +84,7 @@ comment on column t_jour_tab_col.seq is 'Позиция';
 comment on column t_jour_tab_col.name is 'Наименование';
 comment on column t_jour_tab_col.read_opt is 'Оптимизировать для чтения';
 
-create unique index jrtbcl_ne_unq on t_jour_tab_col (name asc) logging;
+create unique index jrtbcl_tbne_unq on t_jour_tab_col (tab_id asc, name asc) logging;
 create unique index jrtbcl_pk on t_jour_tab_col (id asc) logging;
 create index jrtbcl_tb_idx on t_jour_tab_col (tab_id asc) logging;
 alter table t_jour_tab_col add constraint jrtbcl_pk primary key (id) using index jrtbcl_pk;
