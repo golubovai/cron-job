@@ -6,7 +6,7 @@ is
   /**
    * Сброс индексов данных изменения таблиц и колонок журнала.
    */
-  procedure clear;
+  procedure clear(p_obj# in number);
   
   /**
    * Запись изменений журнала.
@@ -15,12 +15,11 @@ is
 
   /**
    * Добавление изменения.
-   * @param p_obj# Идентификатор объекта таблицы.
    * @param p_row_id Идентификатор строки.
    * @param p_time Время изменения.
    * @param p_tab_id Идентификатор таблицы.
    */
-  procedure put_line(p_obj# in number, p_row_id in number, p_time in timestamp, p_tab_id in number default null);
+  procedure put_line(p_row_id in number, p_time in timestamp);
 
   procedure put_col(p_col_name in varchar2, p_b in varchar2, p_a in varchar2, p_ch in varchar2);
   
@@ -64,6 +63,8 @@ is
   
   function get_tab_id(p_tab_name in varchar2) return number;
   
+  function get_col_val(p_tab_id in number, p_col_id in number, p_row_id in number, p_time in timestamp with time zone) return varchar2;
+  
   function get_col_value(p_tab_name in varchar2, p_col_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return varchar2;
 
 end;
@@ -86,16 +87,12 @@ is
   g_os_user varchar2(128) := sys_context('userenv', 'os_user');
 
   -- Данные изменений таблиц журнала.
-  type te_line_t is table of t_jour_line%rowtype index by pls_integer;
-  g_line_t te_line_t;
-  g_line t_jour_line%rowtype;
-  g_line_idx pls_integer;
+  type te_val_t is table of t_jour_val%rowtype index by pls_integer;
+  g_val t_jour_val%rowtype;
+  g_val_t te_val_t;
+  g_idx pls_integer;
+  g_val_idx pls_integer;
   g_obj# number;
-  
-  -- Данные изменений колонок таблиц журнала.
-  type te_col_t is table of t_jour_col%rowtype index by pls_integer;
-  g_col_t te_col_t;
-  g_col_idx pls_integer;
   
   -- Время жизни данных.
   c_tab_lt constant number := 15 * c_sec;
@@ -323,46 +320,58 @@ is
   /**
    * Сброс индексов данных изменения таблиц и колонок журнала.
    */
-  procedure clear
+  procedure clear(p_obj# in number)
   is
   begin
-    g_line_idx := 0;
-    g_col_idx := 0;
-    g_obj# := null;
-    g_line := null;
+    g_idx := null;
+    g_val.ch_id := 0;
+    g_val_idx := 0;
+    g_obj# := p_obj#;
+    g_val.tab_id := get_tab_id(g_obj#);
   end;
-  
+
   /**
    * Запись изменений журнала.
    * @param p_size Предельное число накопленных изменений.
    */
   procedure int_flush(p_size in pls_integer)
   is
+    type te_ch_id_t is table of number;
+    l_ch_id_t te_ch_id_t;
+    type te_idx_t is table of pls_integer index by pls_integer;
+    l_idx_t te_idx_t;
+    l_ch_id number;
   begin
-    if g_line.col_mask > 0 then -- Запись только при наличии изменений.
-      g_line_idx := g_line_idx + 1;
-      g_line_t(g_line_idx) := g_line;
+    if g_idx = g_val_idx then
+      g_val.ch_id := g_val.ch_id - 1;
     end if;
-    if g_line_idx > p_size then
-      forall i in 1 .. g_line_idx
-        insert into t_jour_line values (g_line_t(i).line_id, 
-                                        g_line_t(i).time, 
-                                        g_line_t(i).tab_id, 
-                                        g_line_t(i).row_id,
-                                        g_line_t(i).col_mask);
-      forall i in 1 .. g_line_idx
-        insert into t_jour_line_ext(line_id, time, machine, os_user) values (g_line_t(i).line_id, 
-                                                                             g_line_t(i).time,
-                                                                             g_machine,
-                                                                             g_os_user);
-      g_line_idx := 0;
-      if g_col_idx > 0 then
-        forall i in 1 .. g_col_idx
-          insert into t_jour_col values (g_col_t(i).line_id, 
-                                         g_col_t(i).col_id, 
-                                         g_col_t(i).col_value);
-        g_col_idx := 0;
-      end if;
+    if g_val_idx > p_size then
+      -- Генерация идентификаторов всех изменений.
+      select jour_line_seq.nextval bulk collect into l_ch_id_t from dual connect by level <= g_val.ch_id;
+      
+      l_ch_id := 0;
+      for i in 1 .. g_val_idx loop
+        if g_val_t(i).ch_id > l_ch_id then
+          l_ch_id := g_val_t(i).ch_id;
+          l_idx_t(l_ch_id) := i;
+        end if;
+        g_val_t(i).ch_id := l_ch_id_t(g_val_t(i).ch_id);
+      end loop;
+      
+      
+      forall i in 1 .. g_val_idx
+        insert into t_jour_val(ch_id, time, tab_id, row_id, col_id, col_val) 
+             values (g_val_t(i).ch_id,
+                     g_val_t(i).time,
+                     g_val_t(i).tab_id,
+                     g_val_t(i).row_id,
+                     g_val_t(i).col_id,
+                     g_val_t(i).col_val);
+      forall i in values of l_idx_t
+        insert into t_jour_val_ext(ch_id, time, machine, os_user) 
+             values (g_val_t(i).ch_id, g_val_t(i).time, g_machine, g_os_user);
+      g_val.ch_id := 0;
+      g_val_idx := 0;
     end if;
   end;
   
@@ -377,25 +386,18 @@ is
   
   /**
    * Добавление изменения.
-   * @param p_obj# Идентификатор объекта таблицы.
    * @param p_row_id Идентификатор строки.
    * @param p_time Время изменения.
    * @param p_tab_id Идентификатор таблицы.
    */
-  procedure put_line(p_obj# in number, p_row_id in number, p_time in timestamp, p_tab_id in number default null)
+  procedure put_line(p_row_id in number, p_time in timestamp)
   is
   begin
     int_flush(256);
-    g_obj# := p_obj#;
-    g_line.line_id := jour_line_seq.nextval;
-    g_line.time := sys_extract_utc(p_time);
-    if p_tab_id is null then
-      g_line.tab_id := get_tab_id(p_obj#);
-    else
-      g_line.tab_id := p_tab_id;
-    end if;
-    g_line.row_id := p_row_id;
-    g_line.col_mask := 0;
+    g_idx := g_val_idx;
+    g_val.ch_id := g_val.ch_id + 1;
+    g_val.time := sys_extract_utc(p_time);
+    g_val.row_id := p_row_id;
   end;
   
   /**
@@ -403,16 +405,13 @@ is
    * @param p_tab_col Данные колонки.
    * @param p_col_value Значение колонки.
    */
-  procedure put_col(p_tab_col in t_jour_tab_col%rowtype, p_col_value in varchar2)
+  procedure put_col(p_tab_col in t_jour_tab_col%rowtype, p_col_val in varchar2)
   is
-    l_col t_jour_col%rowtype;
   begin
-    l_col.line_id := g_line.line_id;
-    l_col.col_id := p_tab_col.id;
-    l_col.col_value := p_col_value;
-    g_col_idx := g_col_idx + 1;
-    g_col_t(g_col_idx) := l_col;
-    g_line.col_mask := bitor(g_line.col_mask, p_tab_col.seq); -- Обновление маски измененных колонок.
+    g_val.col_id := p_tab_col.id;
+    g_val.col_val := p_col_val;
+    g_val_idx := g_val_idx + 1;
+    g_val_t(g_val_idx) := g_val;
   end;
   
   /**
@@ -626,7 +625,12 @@ is
     if l_obj# is null then
       throw(2, 'Таблица (' || p_tab_name || ') не найдена.');
     end if;
-    execute immediate 'alter table "' || l_tab_owner || '"."' || l_tab_name || '" drop partition id_' || to_char(p_value, c_number_format) || '_lp';
+    begin
+      execute immediate 'alter table "' || l_tab_owner || '"."' || l_tab_name || '" drop partition id_' || to_char(p_value, c_number_format) || '_lp';
+    exception
+      when others then
+        null;
+    end;
   end;
   
   procedure append(p_clob in out nocopy clob, p_val in varchar2)
@@ -717,17 +721,15 @@ is
       end;
       append(l_sql, 'create or replace ');
     else
-      insert into t_jour_tab(id, obj#) values (jour_id_seq.nextval, l_obj#) returning id, seq into l_jour_tab.id, l_jour_tab.seq;
+      insert into t_jour_tab(id, obj#, seq) values (jour_id_seq.nextval, l_obj#, 0) returning id, seq into l_jour_tab.id, l_jour_tab.seq;
       if c_init then -- Скрипт инициализации начальных значений.
         append(l_init_sql, 'declare' || chr(10));
         append(l_init_sql, '  l_time timestamp with time zone := systimestamp();' || chr(10));
         append(l_init_sql, 'begin' || chr(10));
-        append(l_init_sql, '  "' || c_schema || '".pe_jour.clear;' || chr(10));
+        append(l_init_sql, '  "' || c_schema || '".pe_jour.clear(' || l_obj# || ');' || chr(10));
         append(l_init_sql, '  for i in (select * from "' || l_tab_owner || '"."' || l_tab_name || '") loop' || chr(10));
-        append(l_init_sql, '    "' || c_schema || '".pe_jour.put_line(' || l_obj# || ',' || 
-                                                                      ' i."' || l_col_name || '",' || 
-                                                                      ' l_time,' || 
-                                                                      ' p_tab_id => ' || to_char(l_jour_tab.id) || ');' || chr(10));   
+        append(l_init_sql, '    "' || c_schema || '".pe_jour.put_line( i."' || l_col_name || '",' || 
+                                                                      ' l_time);' || chr(10));   
       end if;
       -- Скрипт создания триггера.
       append(l_sql, 'create ');      
@@ -737,7 +739,7 @@ is
     append(l_sql, '  before statement' || chr(10));
     append(l_sql, '  is' || chr(10));
     append(l_sql, '  begin' || chr(10));
-    append(l_sql, '    ' || c_schema || '.pe_jour.clear;' || chr(10));
+    append(l_sql, '    ' || c_schema || '.pe_jour.clear(' || l_obj# || ');' || chr(10));
     append(l_sql, '  end before statement;' || chr(10));
     append(l_sql, '  after each row' || chr(10));
     append(l_sql, '  is' || chr(10));
@@ -746,9 +748,8 @@ is
     append(l_sql, '    if inserting or deleting then' || chr(10));
     append(l_sql, '      l_ch := ''Y'';' || chr(10));
     append(l_sql, '    end if;' || chr(10));
-    append(l_sql, '    "' || c_schema || '".pe_jour.put_line(' || l_obj# || ',' || 
-                                                             ' nvl(:old."' || l_col_name || '", :new."' || l_col_name || '"),' || 
-                                                             ' systimestamp());' || chr(10));   
+    append(l_sql, '    "' || c_schema || '".pe_jour.put_line(nvl(:old."' || l_col_name || '", :new."' || l_col_name || '"), ' || 
+                                                            'systimestamp());' || chr(10));   
     for i in (select tc.column_name, 
                      tc.data_type,
                      (select id
@@ -826,42 +827,60 @@ is
     execute immediate 'drop trigger "' || c_schema || '"."' || l_tab_name || '_JCT"';
   end;
   
+  function get_col_val(p_tab_id in number, p_col_id in number, p_row_id in number, p_time in timestamp with time zone) return varchar2
+  is
+    c_time constant timestamp with time zone := coalesce(p_time, systimestamp());
+    l_col_val t_jour_val.col_val%type;
+  begin
+    if not p_tab_id is null and not p_col_id is null then
+      for i in (select col_val
+                  from (select --+ index_desc(l jrvl_pk)
+                               l.col_val
+                          from t_jour_val l 
+                         where l.tab_id = p_tab_id
+                           and l.row_id = p_row_id
+                           and l.time <= sys_extract_utc(c_time)
+                           and l.col_id = p_col_id
+                      order by l.tab_id desc, l.row_id desc, l.time desc, l.col_id, l.ch_id desc) where rownum = 1)
+      loop
+        l_col_val := i.col_val;
+      end loop;
+    end if;
+    return l_col_val;
+  end;
+  
   function get_col_value(p_tab_name in varchar2, p_col_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return varchar2
   is
     c_time constant timestamp with time zone := coalesce(p_time, systimestamp());
     l_obj# number;
     l_tab_col t_jour_tab_col%rowtype;
-    l_col_value t_jour_col.col_value%type;
+    l_col_val t_jour_val.col_val%type;
   begin
     l_obj# := get_tab_obj#(p_tab_name);
     l_tab_col := get_tab_col(l_obj#, p_col_name);
-    if not l_tab_col.seq is null then
-      for i in (select --+ index(c jrcl_pk)
-                       c.col_value
-                  from t_jour_col c
-                 where c.line_id = (select line_id
-                                      from (select --+ index_desc(l jrle_pk)
-                                                   l.line_id
-                                              from t_jour_line l 
-                                             where l.tab_id = l_tab_col.tab_id
-                                               and l.row_id = p_row_id
-                                               and l.time <= sys_extract_utc(c_time)
-                                               and bitand(l.col_mask, l_tab_col.seq) > 0
-                                          order by l.tab_id desc, l.row_id desc, l.time desc, l.line_id desc) where rownum = 1)
-                   and c.col_id = l_tab_col.id)
+    if not l_tab_col.id is null then
+      for i in (select col_val
+                  from (select --+ index_desc(l jrvl_pk)
+                               l.col_val
+                          from t_jour_val l 
+                         where l.tab_id = l_tab_col.tab_id
+                           and l.row_id = p_row_id
+                           and l.time <= sys_extract_utc(c_time)
+                           and l.col_id = l_tab_col.id
+                      order by l.tab_id desc, l.row_id desc, l.time desc, l.col_id, l.ch_id desc) where rownum = 1)
       loop
-        l_col_value := i.col_value;
+        l_col_val := i.col_val;
       end loop;
     end if;
-    return l_col_value;
+    return l_col_val;
   end;
   
   function get_row_value(p_tab_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return te_row_t
   is
+    c_time constant timestamp with time zone := coalesce(p_time, systimestamp());
+    l_obj# number;
+    l_tab_col t_jour_tab_col%rowtype;
   begin
-   
-  
-  
     null;
   end;
 

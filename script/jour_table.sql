@@ -1,38 +1,39 @@
-create table t_jour_col (
-  line_id number(38) not null,
-  col_id number(38) not null,
-  col_value varchar2(2000 byte),
-  constraint jrcl_pk primary key (line_id, col_id)
+-- create table
+create table t_jour_val
+(
+  ch_id number(38) not null,
+  time timestamp(6) not null,
+  tab_id number(8) not null,
+  row_id number not null,
+  col_id number not null,
+  col_val varchar2(2000),
+  constraint jrvl_pk primary key (tab_id, row_id, time, ch_id, col_id)
 )
-organization index logging partition by list (col_id) (partition empty_lp values (0));
-comment on table t_jour_col is 'Журнал изменений полей';
-comment on column t_jour_col.line_id is 'Идентификатор изменения';
-comment on column t_jour_col.col_id is 'Идентификатор колонки';
-comment on column t_jour_col.col_value is 'Значение';
+organization index logging compress 4 including col_val overflow storage(initial 0k) logging
+partition by list (tab_id)
+(
+  partition empty_lp values (0)
+);
+-- add comments to the table 
+comment on table t_jour_val
+  is 'Изменение журнала';
+-- add comments to the columns 
+comment on column t_jour_val.ch_id
+  is 'Идентификатор изменения';
+comment on column t_jour_val.time
+  is 'Время';
+comment on column t_jour_val.tab_id
+  is 'Идентификатор таблицы';
+comment on column t_jour_val.row_id
+  is 'Идентифыикатор строки';
+comment on column t_jour_val.col_id
+  is 'Идентификатор колонки';
+-- create/recreate indexes 
+create index jrvl_te_idx on t_jour_val (time);
 
 
-create table t_jour_line (
-  line_id number(38) not null, 
-  time timestamp not null, 
-  tab_id number(8) not null, 
-  row_id number not null, 
-  col_mask number not null, 
-  constraint jrle_pk primary key (tab_id, row_id, time, line_id)
-)
-organization index logging compress 1 including col_mask overflow logging partition by list (tab_id) (partition empty_lp values (0));
-
-comment on table t_jour_line is 'Изменение журнала';
-comment on column t_jour_line.line_id is 'Идентификатор изменения';
-comment on column t_jour_line.time is 'Время';
-comment on column t_jour_line.tab_id is 'Идентификатор таблицы';
-comment on column t_jour_line.row_id is 'Идентифыикатор строки';
-comment on column t_jour_line.col_mask is 'Битовая маска измененных колонок';
-
-create index jrle_te_idx on t_jour_line(time asc) logging;
-
-
-create table t_jour_line_ext ( 
-  line_id number(38) not null, 
+create table t_jour_val_ext ( 
+  ch_id number(38) not null, 
   time timestamp not null, 
   time_utc timestamp as (sys_extract_utc(time)) virtual, 
   machine varchar2(64 byte), 
@@ -40,20 +41,19 @@ create table t_jour_line_ext (
 ) 
 logging partition by range ( time_utc ) interval (numtodsinterval(1, 'day')) (partition values less than (to_date('01.10.2019','dd.mm.yyyy')));
 
-comment on table t_jour_line_ext is 'Информация изменения журнала';
-comment on column t_jour_line_ext.line_id is 'Идентификатор изменения';
-comment on column t_jour_line_ext.time is 'Время';
-comment on column t_jour_line_ext.time_utc is 'Время (Utc)';
-comment on column t_jour_line_ext.machine is 'Наименование компьютера пользователя';
-comment on column t_jour_line_ext.os_user is 'Имя пользователя операционной системы';
-
-alter table t_jour_line_ext add constraint jrleet_pk primary key (line_id);
+comment on table t_jour_val_ext is 'Информация изменения журнала';
+comment on column t_jour_val_ext.line_id is 'Идентификатор изменения';
+comment on column t_jour_val_ext.time is 'Время';
+comment on column t_jour_val_ext.time_utc is 'Время (Utc)';
+comment on column t_jour_val_ext.machine is 'Наименование компьютера пользователя';
+comment on column t_jour_val_ext.os_user is 'Имя пользователя операционной системы';
+alter table t_jour_val_ext add constraint jrvlet_pk primary key (ch_id);
 
 
 create table t_jour_tab ( 
   id number(8) not null, 
   obj# number not null,
-  seq number not null default 0
+  seq number default 0 not null
 ) logging;
 
 comment on table t_jour_tab is 'Таблица журнала';
