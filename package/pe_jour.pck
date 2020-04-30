@@ -773,7 +773,7 @@ is
       -- Скрипт создания триггера.
       append(l_sql, 'create ');      
     end if;
-    append(l_sql, 'trigger "' || c_schema || '"."' || l_tab_name || '_JCT" for insert or update or delete on "' || 
+    append(l_sql, 'trigger "' || l_tab_owner || '"."' || l_tab_name || '_JCT" for insert or update or delete on "' || l_tab_owner || '"."' || 
                   l_tab_name || '" compound trigger' || chr(10));
     append(l_sql, '  before statement' || chr(10));
     append(l_sql, '  is' || chr(10));
