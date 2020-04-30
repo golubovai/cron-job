@@ -124,7 +124,15 @@ is
    * @param p_time Время.
    */
   function get_col_val(p_tab_name in varchar2, p_col_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return varchar2;
-
+  
+  /**
+   * Получение значений колонок строки на момент времени.
+   * @param p_tab_name Наименование таблицы.
+   * @param p_row_id Идентификатор строки.
+   * @param p_time Время.
+   */
+  function get_row_val(p_tab_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return te_row_t;
+  
 end;
 /
 create or replace package body pe_jour
@@ -796,23 +804,14 @@ is
                  and tc.hidden_column = 'NO'
                  and tc.virtual_column = 'NO')
     loop
-      if not l_col_name = i.column_name then
-        l_suf := case when i.data_type in ('CHAR', 'RAW', 'ROWID') then '_' || lower(i.data_type) end;
-        if c_sync then
-          if i.col_id is null then
-            update t_jour_tab_col
-               set act = 'N'
-             where tab_id = l_jour_tab.id
-               and name = i.column_name
-               and act = 'Y';
-            l_jour_tab.seq := l_jour_tab.seq + 1;
-            insert into t_jour_tab_col(id, tab_id, seq, name, data_typ) values (jour_id_seq.nextval, l_jour_tab.id, l_jour_tab.seq, i.column_name, i.data_type);
-            if c_init then
-              append(l_init_sql, '    "' || c_schema || '".pe_jour.put_col' || l_suf || '(''' || i.column_name || ''', null, i."' || i.column_name || '", ''Y'');' || chr(10));
-              l_init := true;
-            end if;
-          end if;
-        else
+      l_suf := case when i.data_type in ('CHAR', 'RAW', 'ROWID') then '_' || lower(i.data_type) end;
+      if c_sync then
+        if i.col_id is null then
+          update t_jour_tab_col
+             set act = 'N'
+           where tab_id = l_jour_tab.id
+             and name = i.column_name
+             and act = 'Y';
           l_jour_tab.seq := l_jour_tab.seq + 1;
           insert into t_jour_tab_col(id, tab_id, seq, name, data_typ) values (jour_id_seq.nextval, l_jour_tab.id, l_jour_tab.seq, i.column_name, i.data_type);
           if c_init then
@@ -820,11 +819,18 @@ is
             l_init := true;
           end if;
         end if;
-        append(l_sql, '    "' || c_schema || '".pe_jour.put_col' || l_suf || '(''' || i.column_name || ''',' || 
-                                                                           ' :old."' || i.column_name || '",' ||
-                                                                           ' :new."' || i.column_name || '",' || 
-                                                                           ' nvl(l_ch, case when updating(''' || i.column_name || ''') then ''?'' else ''N'' end));' || chr(10));
+      else
+        l_jour_tab.seq := l_jour_tab.seq + 1;
+        insert into t_jour_tab_col(id, tab_id, seq, name, data_typ) values (jour_id_seq.nextval, l_jour_tab.id, l_jour_tab.seq, i.column_name, i.data_type);
+        if c_init then
+          append(l_init_sql, '    "' || c_schema || '".pe_jour.put_col' || l_suf || '(''' || i.column_name || ''', null, i."' || i.column_name || '", ''Y'');' || chr(10));
+          l_init := true;
+        end if;
       end if;
+      append(l_sql, '    "' || c_schema || '".pe_jour.put_col' || l_suf || '(''' || i.column_name || ''',' || 
+                                                                         ' :old."' || i.column_name || '",' ||
+                                                                         ' :new."' || i.column_name || '",' || 
+                                                                         ' nvl(l_ch, case when updating(''' || i.column_name || ''') then ''?'' else ''N'' end));' || chr(10));
     end loop;
     append(l_sql, '  end after each row;' || chr(10));
     append(l_sql, '  after statement' || chr(10));
@@ -903,9 +909,21 @@ is
   is
     c_time constant timestamp with time zone := coalesce(p_time, systimestamp());
     l_obj# number;
+    l_idx varchar2(192);
     l_tab_col t_jour_tab_col%rowtype;
+    l_row_t te_row_t;
   begin
-    null;
+    l_obj# := get_tab_obj#(p_tab_name);
+    init_tab_t(l_obj#);
+    l_idx := l_obj# || '*';
+    l_idx := g_tab_col_t.next(l_idx);
+    loop
+      exit when l_idx is null;
+      l_tab_col := g_tab_col_t(l_idx);
+      l_row_t(l_tab_col.name) := get_col_val_(l_tab_col.tab_id, l_tab_col.id, p_row_id, p_time);
+      l_idx := g_tab_col_t.next(l_idx);
+    end loop;
+    return l_row_t;
   end;
 
 end;
