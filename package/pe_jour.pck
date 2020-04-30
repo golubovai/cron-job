@@ -687,6 +687,13 @@ is
     dbms_lob.writeappend(p_clob, length(p_val), p_val);
   end;
   
+  procedure exec_at(p_sql in varchar2)
+  is
+    pragma autonomous_transaction;
+  begin
+    execute immediate p_sql;
+  end;
+  
   procedure set_trigger(p_tab_name in varchar2, 
                         p_sync in boolean default false,
                         p_init in boolean default true)
@@ -846,7 +853,7 @@ is
       execute immediate l_init_sql;
     end if;
     update t_jour_tab set seq = l_jour_tab.seq where id = l_jour_tab.id;
-    execute immediate l_sql;
+    exec_at(l_sql);
   end;
   
   procedure drop_trigger(p_tab_name in varchar2)
