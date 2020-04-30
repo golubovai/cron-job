@@ -778,7 +778,7 @@ is
     append(l_sql, '  before statement' || chr(10));
     append(l_sql, '  is' || chr(10));
     append(l_sql, '  begin' || chr(10));
-    append(l_sql, '    ' || c_schema || '.pe_jour.clear(' || l_obj# || ');' || chr(10));
+    append(l_sql, '    "' || c_schema || '".pe_jour.clear(' || l_obj# || ');' || chr(10));
     append(l_sql, '  end before statement;' || chr(10));
     append(l_sql, '  after each row' || chr(10));
     append(l_sql, '  is' || chr(10));
