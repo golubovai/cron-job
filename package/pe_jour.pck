@@ -5,6 +5,7 @@ is
 
   /**
    * Сброс индексов данных изменения таблиц и колонок журнала.
+   * @param p_obj# Идентификатор объекта таблицы.
    */
   procedure clear(p_obj# in number);
   
@@ -14,13 +15,20 @@ is
   procedure flush;
 
   /**
-   * Добавление изменения.
+   * Добавление изменения строки.
    * @param p_row_id Идентификатор строки.
    * @param p_time Время изменения.
    * @param p_tab_id Идентификатор таблицы.
    */
   procedure put_line(p_row_id in number, p_time in timestamp);
 
+  /**
+   * Добавление изменения колонки.
+   * @param p_col_name Наименование колонки.
+   * @param p_b Значение до изменения.
+   * @param p_a Значение после изменения.
+   * @param p_ch Признак изменения колонки.
+   */
   procedure put_col(p_col_name in varchar2, p_b in varchar2, p_a in varchar2, p_ch in varchar2);
   
   procedure put_col_char(p_col_name in varchar2, p_b in char, p_a in char, p_ch in varchar2);
@@ -45,13 +53,23 @@ is
   
   procedure put_col(p_col_name in varchar2, p_b in yminterval_unconstrained, p_a in yminterval_unconstrained, p_ch in varchar2);
   
+  /**
+   * Добавление партиции в таблицу.
+   * @param p_tab_name Наименование таблицы.
+   * @param p_value Значение.
+   */
   procedure put_partition(p_tab_name in varchar2, p_value in number);
-  
+
+  /**
+   * Удаление партиции из таблицы.
+   * @param p_tab_name Наименование таблицы.
+   * @param p_value Значение.
+   */  
   procedure drop_partition(p_tab_name in varchar2, p_value in number);
 
   /**
    * Создание триггера.
-   * @param p_tab_name Имя таблицы.
+   * @param p_tab_name Наименование таблицы.
    * @param p_sync Синхронизация или установка.
    * @param p_init Инициализация начальных значений колонок таблицы.
    */
@@ -59,13 +77,53 @@ is
                         p_sync in boolean default false,
                         p_init in boolean default true);
   
+  /**
+   * Удаление триггера.
+   * @param p_tab_name Наименование таблицы.
+   * @param p_sync Синхронизация или установка.
+   * @param p_init Инициализация начальных значений колонок таблицы.
+   */
   procedure drop_trigger(p_tab_name in varchar2);
   
+  /**
+   * Получение идентификатора объекта таблицы.
+   * @param p_tab_name Наименование таблицы.
+   * @return Идентификатор объекта таблицы.
+   */
+  function get_tab_obj#(p_tab_name in varchar2) return number;
+  
+  /**
+   * Получение идентификатора таблицы.
+   * @param p_tab_name Наименование таблицы.
+   * @return Идентификатор таблицы.
+   */
   function get_tab_id(p_tab_name in varchar2) return number;
   
-  function get_col_val(p_tab_id in number, p_col_id in number, p_row_id in number, p_time in timestamp with time zone) return varchar2;
+  /**
+   * Получить идентификатор колонки.
+   * @param p_tab_obj# Идентификатор объекта таблицы.
+   * @param p_col_name Наименование колонки.
+   * @return Идентификатор колонки.
+   */
+  function get_col_id(p_tab_obj# in number, p_col_name in varchar2) return number;
   
-  function get_col_value(p_tab_name in varchar2, p_col_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return varchar2;
+  /**
+   * Получить значение колонки строки на момент времени.
+   * @param p_tab_id Идентификатор таблицы.
+   * @param p_col_id Идентификатор колонки.
+   * @param p_row_id Идентификатор строки.
+   * @param p_time Время.
+   */
+  function get_col_val_(p_tab_id in number, p_col_id in number, p_row_id in number, p_time in timestamp with time zone) return varchar2;
+  
+  /**
+   * Получить значение колонки строки на момент времени.
+   * @param p_tab_name Наименование таблицы.
+   * @param p_col_name Наименование колонки.
+   * @param p_row_id Идентификатор строки.
+   * @param p_time Время.
+   */
+  function get_col_val(p_tab_name in varchar2, p_col_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return varchar2;
 
 end;
 /
@@ -112,15 +170,6 @@ is
   is
   begin
     raise_application_error(-22000 - p_n, p_message, true);
-  end;
-  
-  /**
-   * Логическое или.
-   */
-  function bitor(p_a in integer, p_b in integer) return integer deterministic
-  is
-  begin
-    return p_a - bitand(p_a, p_b) + p_b;
   end;
   
   /**
@@ -262,10 +311,11 @@ is
         l_idx := g_tab_col_t.next(l_idx);
       end loop;
       l_idx := p_obj# || '*';
-      for tab_col in (select tc.id, tc.tab_id, power(2, tc.seq) seq, tc.name, tc.read_opt
+      for tab_col in (select tc.id, tc.tab_id, tc.seq, tc.name, tc.data_typ, tc.read_opt, tc.act
                         from t_jour_tab t, t_jour_tab_col tc
                        where t.obj# = p_obj#
-                         and tc.tab_id = t.id)
+                         and tc.tab_id = t.id
+                         and tc.act = 'Y')
       loop
         g_tab_col_t(l_idx || tab_col.name) := tab_col;
       end loop;
@@ -316,10 +366,7 @@ is
     end if;
     return l_tab_col;
   end;
-  
-  /**
-   * Сброс индексов данных изменения таблиц и колонок журнала.
-   */
+
   procedure clear(p_obj# in number)
   is
   begin
@@ -375,21 +422,12 @@ is
     end if;
   end;
   
-  /**
-   * Запись изменений журнала.
-   */
   procedure flush
   is
   begin
     int_flush(0);
   end;
   
-  /**
-   * Добавление изменения.
-   * @param p_row_id Идентификатор строки.
-   * @param p_time Время изменения.
-   * @param p_tab_id Идентификатор таблицы.
-   */
   procedure put_line(p_row_id in number, p_time in timestamp)
   is
   begin
@@ -414,13 +452,6 @@ is
     g_val_t(g_val_idx) := g_val;
   end;
   
-  /**
-   * Добавление изменения колонки.
-   * @param p_col_name Наименование колонки.
-   * @param p_b Значение до изменения.
-   * @param p_a Значение после изменения.
-   * @param p_ch Признак изменения колонки.
-   */
   procedure put_col(p_col_name in varchar2, p_b in varchar2, p_a in varchar2, p_ch in varchar2)
   is
     l_tab_col t_jour_tab_col%rowtype;
@@ -599,6 +630,12 @@ is
     return get_tab_id(get_tab_obj#(p_tab_name));
   end;
   
+  function get_col_id(p_tab_obj# in number, p_col_name in varchar2) return number
+  is
+  begin
+    return get_tab_col(p_tab_obj#, p_col_name).id;
+  end;
+  
   procedure put_partition(p_tab_name in varchar2, p_value in number)
   is
     l_obj# number;
@@ -642,12 +679,6 @@ is
     dbms_lob.writeappend(p_clob, length(p_val), p_val);
   end;
   
-  /**
-   * Создание триггера.
-   * @param p_tab_name Имя таблицы.
-   * @param p_sync Синхронизация или установка.
-   * @param p_init Инициализация начальных значений колонок таблицы.
-   */
   procedure set_trigger(p_tab_name in varchar2, 
                         p_sync in boolean default false,
                         p_init in boolean default true)
@@ -755,7 +786,9 @@ is
                      (select id
                         from t_jour_tab_col
                        where tab_id = l_jour_tab.id
-                         and name = tc.column_name) col_id
+                         and name = tc.column_name
+                         and data_typ = tc.data_type
+                         and act = 'Y') col_id
                 from all_tab_cols tc
                where tc.owner = l_tab_owner
                  and tc.table_name = l_tab_name
@@ -767,8 +800,13 @@ is
         l_suf := case when i.data_type in ('CHAR', 'RAW', 'ROWID') then '_' || lower(i.data_type) end;
         if c_sync then
           if i.col_id is null then
+            update t_jour_tab_col
+               set act = 'N'
+             where tab_id = l_jour_tab.id
+               and name = i.column_name
+               and act = 'Y';
             l_jour_tab.seq := l_jour_tab.seq + 1;
-            insert into t_jour_tab_col(id, tab_id, seq, name, read_opt) values (jour_id_seq.nextval, l_jour_tab.id, l_jour_tab.seq, i.column_name, 'N');
+            insert into t_jour_tab_col(id, tab_id, seq, name, data_typ) values (jour_id_seq.nextval, l_jour_tab.id, l_jour_tab.seq, i.column_name, i.data_type);
             if c_init then
               append(l_init_sql, '    "' || c_schema || '".pe_jour.put_col' || l_suf || '(''' || i.column_name || ''', null, i."' || i.column_name || '", ''Y'');' || chr(10));
               l_init := true;
@@ -776,7 +814,7 @@ is
           end if;
         else
           l_jour_tab.seq := l_jour_tab.seq + 1;
-          insert into t_jour_tab_col(id, tab_id, seq, name, read_opt) values (jour_id_seq.nextval, l_jour_tab.id, l_jour_tab.seq, i.column_name, 'N');
+          insert into t_jour_tab_col(id, tab_id, seq, name, data_typ) values (jour_id_seq.nextval, l_jour_tab.id, l_jour_tab.seq, i.column_name, i.data_type);
           if c_init then
             append(l_init_sql, '    "' || c_schema || '".pe_jour.put_col' || l_suf || '(''' || i.column_name || ''', null, i."' || i.column_name || '", ''Y'');' || chr(10));
             l_init := true;
@@ -827,7 +865,7 @@ is
     execute immediate 'drop trigger "' || c_schema || '"."' || l_tab_name || '_JCT"';
   end;
   
-  function get_col_val(p_tab_id in number, p_col_id in number, p_row_id in number, p_time in timestamp with time zone) return varchar2
+  function get_col_val_(p_tab_id in number, p_col_id in number, p_row_id in number, p_time in timestamp with time zone) return varchar2
   is
     c_time constant timestamp with time zone := coalesce(p_time, systimestamp());
     l_col_val t_jour_val.col_val%type;
@@ -841,7 +879,7 @@ is
                            and l.row_id = p_row_id
                            and l.time <= sys_extract_utc(c_time)
                            and l.col_id = p_col_id
-                      order by l.tab_id desc, l.row_id desc, l.time desc, l.col_id, l.ch_id desc) where rownum = 1)
+                      order by l.tab_id desc, l.row_id desc, l.time desc, l.col_id desc, l.ch_id desc) where rownum = 1)
       loop
         l_col_val := i.col_val;
       end loop;
@@ -849,7 +887,7 @@ is
     return l_col_val;
   end;
   
-  function get_col_value(p_tab_name in varchar2, p_col_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return varchar2
+  function get_col_val(p_tab_name in varchar2, p_col_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return varchar2
   is
     c_time constant timestamp with time zone := coalesce(p_time, systimestamp());
     l_obj# number;
@@ -858,24 +896,10 @@ is
   begin
     l_obj# := get_tab_obj#(p_tab_name);
     l_tab_col := get_tab_col(l_obj#, p_col_name);
-    if not l_tab_col.id is null then
-      for i in (select col_val
-                  from (select --+ index_desc(l jrvl_pk)
-                               l.col_val
-                          from t_jour_val l 
-                         where l.tab_id = l_tab_col.tab_id
-                           and l.row_id = p_row_id
-                           and l.time <= sys_extract_utc(c_time)
-                           and l.col_id = l_tab_col.id
-                      order by l.tab_id desc, l.row_id desc, l.time desc, l.col_id, l.ch_id desc) where rownum = 1)
-      loop
-        l_col_val := i.col_val;
-      end loop;
-    end if;
-    return l_col_val;
+    return get_col_val(l_tab_col.tab_id, l_tab_col.id, p_row_id, c_time); 
   end;
   
-  function get_row_value(p_tab_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return te_row_t
+  function get_row_val(p_tab_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return te_row_t
   is
     c_time constant timestamp with time zone := coalesce(p_time, systimestamp());
     l_obj# number;

@@ -2,9 +2,9 @@
 declare
 begin
   if inserting then
-    pe_jour.put_partition('t_jour_line', :new.id);
+    pe_jour.put_partition('t_jour_val', :new.id);
   elsif deleting then
-    pe_jour.drop_partition('t_jour_line', :old.id);
+    pe_jour.drop_partition('t_jour_val', :old.id);
   end if;
 end;
 /
