@@ -9,7 +9,7 @@ create table t_jour_val
   col_val varchar2(2000),
   constraint jrvl_pk primary key (tab_id, row_id, col_id, time, ch_id)
 )
-organization index logging compress 4 including col_val overflow storage(initial 0k) logging
+organization index logging compress 3 including col_val overflow storage(initial 0k) logging
 partition by list (col_id)
 (
   partition empty_lp values (0)
@@ -28,8 +28,6 @@ comment on column t_jour_val.row_id
   is 'Идентифыикатор строки';
 comment on column t_jour_val.col_id
   is 'Идентификатор колонки';
--- create/recreate indexes 
-create index jrvl_te_idx on t_jour_val (time);
 
 
 create table t_jour_val_ext ( 
