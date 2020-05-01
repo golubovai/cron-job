@@ -1,4 +1,4 @@
-﻿create or replace trigger t_jour_tab_ait after insert or delete on t_jour_tab for each row
+﻿create or replace trigger t_jour_col_ait after insert or delete on t_jour_tab_col for each row
 declare
 begin
   if inserting then

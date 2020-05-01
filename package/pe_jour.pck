@@ -68,20 +68,18 @@ is
   procedure drop_partition(p_tab_name in varchar2, p_value in number);
 
   /**
-   * Создание триггера.
+   * Создание и синхронизация триггера журналирования.
    * @param p_tab_name Наименование таблицы.
-   * @param p_sync Синхронизация или установка.
-   * @param p_init Инициализация начальных значений колонок таблицы.
+   * @param p_sync Синхронизация состава или создание.
+   * @param p_init Инициализация текущих значений колонок таблицы в журнал.
    */
   procedure set_trigger(p_tab_name in varchar2, 
                         p_sync in boolean default false,
                         p_init in boolean default true);
   
   /**
-   * Удаление триггера.
+   * Удаление триггера и журнала таблицы.
    * @param p_tab_name Наименование таблицы.
-   * @param p_sync Синхронизация или установка.
-   * @param p_init Инициализация начальных значений колонок таблицы.
    */
   procedure drop_trigger(p_tab_name in varchar2);
   
@@ -165,9 +163,11 @@ is
   -- Данные колонок таблиц журнала.
   type te_tab_col_t is table of t_jour_tab_col%rowtype index by varchar2(192);
   g_tab_col_t te_tab_col_t;
+  
   -- Время повторной инициализации.
-  type te_tab_exp_t is table of date index by varchar2(64);
-  g_tab_exp_t te_tab_exp_t;
+  type te_tab is record(id number, expire date);
+  type te_tab_t is table of te_tab index by varchar2(64);
+  g_tab_t te_tab_t;
   
   /**
    * Вызов исключения.
@@ -177,7 +177,7 @@ is
   procedure throw(p_n in binary_integer, p_message in varchar2)
   is
   begin
-    raise_application_error(-22000 - p_n, p_message, true);
+    raise_application_error(-20800 - p_n, p_message, true);
   end;
   
   /**
@@ -311,23 +311,26 @@ is
   is
     c_time constant date := sysdate;
     l_idx varchar2(192);
+    l_tab te_tab;
   begin
-    if not g_tab_exp_t.exists(p_obj#) or g_tab_exp_t(p_obj#) < c_time then
+    if not g_tab_t.exists(p_obj#) or g_tab_t(p_obj#).expire < c_time then
       l_idx := g_tab_col_t.next(p_obj# || '*');
       while not l_idx is null loop
         g_tab_col_t.delete(l_idx);
         l_idx := g_tab_col_t.next(l_idx);
       end loop;
       l_idx := p_obj# || '*';
-      for tab_col in (select tc.id, tc.tab_id, tc.seq, tc.name, tc.data_typ, tc.read_opt, tc.act
+      for tab_col in (select tc.id, tc.tab_id, tc.name, tc.data_typ, tc.read_opt, tc.act
                         from t_jour_tab t, t_jour_tab_col tc
                        where t.obj# = p_obj#
                          and tc.tab_id = t.id
                          and tc.act = 'Y')
       loop
         g_tab_col_t(l_idx || tab_col.name) := tab_col;
+        l_tab.id := nvl(l_tab.id, tab_col.tab_id);
       end loop;
-      g_tab_exp_t(p_obj#) := c_time + c_tab_lt;
+      l_tab.expire := c_time + c_tab_lt;
+      g_tab_t(p_obj#) := l_tab;
     end if;
   end;
   
@@ -338,17 +341,14 @@ is
    */
   function get_tab_id(p_obj# in number) return number
   is
-    l_idx varchar2(64);
     l_tab_id number;
   begin
     if p_obj# is null then
       return null;
     end if;
     init_tab_t(p_obj#);
-    l_idx := p_obj# || '*';
-    l_idx := g_tab_col_t.next(l_idx);
-    if l_idx like p_obj# || '*%' then
-      l_tab_id := g_tab_col_t(l_idx).tab_id;
+    if g_tab_t.exists(p_obj#) then
+      l_tab_id := g_tab_t(p_obj#).id;
     end if;
     return l_tab_id;
   end;
@@ -644,18 +644,25 @@ is
     return get_tab_col(p_tab_obj#, p_col_name).id;
   end;
   
+  procedure exec_at(p_sql in varchar2)
+  is
+    pragma autonomous_transaction;
+  begin
+    execute immediate p_sql;
+  end;
+  
   procedure put_partition(p_tab_name in varchar2, p_value in number)
   is
     l_obj# number;
     l_tab_name varchar2(128) := p_tab_name;
     l_tab_owner varchar2(128);
-    pragma autonomous_transaction;
   begin
     l_obj# := get_tab_obj#(l_tab_name, l_tab_owner);
     if l_obj# is null then
       throw(1, 'Таблица (' || p_tab_name || ') не найдена.');
     end if;
-    execute immediate 'alter table "' || l_tab_owner || '"."' || l_tab_name || '" add partition id_' || to_char(p_value, c_number_format) || '_lp values (' || to_char(p_value, c_number_format) || ')';
+    exec_at('alter table "' || l_tab_owner || '"."' || l_tab_name || '" add partition "ID_' || to_char(p_value, c_number_format) || '_LP" values (' || 
+            to_char(p_value, c_number_format) || ')');
   end;
   
   procedure drop_partition(p_tab_name in varchar2, p_value in number)
@@ -663,19 +670,19 @@ is
     l_obj# number;
     l_tab_name varchar2(128) := p_tab_name;
     l_tab_owner varchar2(128);
-    pragma autonomous_transaction;
   begin
-    l_obj# := get_tab_obj#(p_tab_name);
     l_obj# := get_tab_obj#(l_tab_name, l_tab_owner);
     if l_obj# is null then
       throw(2, 'Таблица (' || p_tab_name || ') не найдена.');
     end if;
-    begin
-      execute immediate 'alter table "' || l_tab_owner || '"."' || l_tab_name || '" drop partition id_' || to_char(p_value, c_number_format) || '_lp';
-    exception
-      when others then
-        null;
-    end;
+    for i in (select table_owner, table_name, partition_name
+                from all_tab_partitions
+               where table_owner = l_tab_owner
+                 and table_name = l_tab_name
+                 and partition_name = 'ID_' || to_char(p_value, c_number_format) || '_LP')
+    loop
+      exec_at('alter table "' || i.table_owner || '"."' || i.table_name || '" drop partition "' || i.partition_name || '"');
+    end loop;
   end;
   
   procedure append(p_clob in out nocopy clob, p_val in varchar2)
@@ -685,13 +692,6 @@ is
       dbms_lob.createtemporary(p_clob, true, dur => dbms_lob.call);
     end if;
     dbms_lob.writeappend(p_clob, length(p_val), p_val);
-  end;
-  
-  procedure exec_at(p_sql in varchar2)
-  is
-    pragma autonomous_transaction;
-  begin
-    execute immediate p_sql;
   end;
   
   procedure set_trigger(p_tab_name in varchar2, 
@@ -711,6 +711,7 @@ is
     l_sql clob;
     l_init_sql clob;
     l_suf varchar2(128);
+    pragma autonomous_transaction;
   begin
     l_obj# := get_tab_obj#(l_tab_name, l_tab_owner);
     if l_obj# is null then
@@ -756,18 +757,19 @@ is
      group by ic.index_name having max(ic.column_position) = 1
                                and max(tc.data_type) = 'NUMBER';
     if l_col_name is null then
-      throw(5, 'Состав или тип данных колонок индекса первичного ключа (' || l_idx_name || ') не подходит для использования в журнале изменений.');
+      throw(5, 'Состав или тип данных колонок индекса первичного ключа (' || l_idx_name || 
+               ') не отвечает всем требованиям для использования в журнале изменений.');
     end if;
     if c_sync then
       begin
-        select id, seq into l_jour_tab.id, l_jour_tab.seq from t_jour_tab where obj# = l_obj# for update;
+        select id into l_jour_tab.id from t_jour_tab where obj# = l_obj# for update;
       exception
         when no_data_found then
           throw(6, 'Таблица (' || l_tab_name || ') не журналирует изменения.');
       end;
       append(l_sql, 'create or replace ');
     else
-      insert into t_jour_tab(id, obj#, seq) values (jour_id_seq.nextval, l_obj#, 0) returning id, seq into l_jour_tab.id, l_jour_tab.seq;
+      insert into t_jour_tab(id, obj#) values (jour_id_seq.nextval, l_obj#) returning id into l_jour_tab.id;
       if c_init then -- Скрипт инициализации начальных значений.
         append(l_init_sql, 'declare' || chr(10));
         append(l_init_sql, '  l_time timestamp with time zone := systimestamp();' || chr(10));
@@ -819,16 +821,14 @@ is
            where tab_id = l_jour_tab.id
              and name = i.column_name
              and act = 'Y';
-          l_jour_tab.seq := l_jour_tab.seq + 1;
-          insert into t_jour_tab_col(id, tab_id, seq, name, data_typ) values (jour_id_seq.nextval, l_jour_tab.id, l_jour_tab.seq, i.column_name, i.data_type);
+          insert into t_jour_tab_col(id, tab_id, name, data_typ) values (jour_id_seq.nextval, l_jour_tab.id, i.column_name, i.data_type);
           if c_init then
             append(l_init_sql, '    "' || c_schema || '".pe_jour.put_col' || l_suf || '(''' || i.column_name || ''', null, i."' || i.column_name || '", ''Y'');' || chr(10));
             l_init := true;
           end if;
         end if;
       else
-        l_jour_tab.seq := l_jour_tab.seq + 1;
-        insert into t_jour_tab_col(id, tab_id, seq, name, data_typ) values (jour_id_seq.nextval, l_jour_tab.id, l_jour_tab.seq, i.column_name, i.data_type);
+        insert into t_jour_tab_col(id, tab_id, name, data_typ) values (jour_id_seq.nextval, l_jour_tab.id, i.column_name, i.data_type);
         if c_init then
           append(l_init_sql, '    "' || c_schema || '".pe_jour.put_col' || l_suf || '(''' || i.column_name || ''', null, i."' || i.column_name || '", ''Y'');' || chr(10));
           l_init := true;
@@ -852,8 +852,9 @@ is
       append(l_init_sql, 'end;' || chr(10));
       execute immediate l_init_sql;
     end if;
-    update t_jour_tab set seq = l_jour_tab.seq where id = l_jour_tab.id;
+    exec_at('grant execute on "' || c_schema || '".pe_jour to "' || l_tab_owner || '"');
     exec_at(l_sql);
+    commit;
   end;
   
   procedure drop_trigger(p_tab_name in varchar2)
@@ -862,6 +863,7 @@ is
     l_tab_name varchar2(128) := p_tab_name;
     l_obj# number;
     l_id number;
+    pragma autonomous_transaction;
   begin
     l_obj# := get_tab_obj#(l_tab_name, l_tab_owner);
     if l_obj# is null then
@@ -875,7 +877,8 @@ is
     end;
     delete from t_jour_tab_col where tab_id = l_id;
     delete from t_jour_tab where id = l_id;
-    execute immediate 'drop trigger "' || c_schema || '"."' || l_tab_name || '_JCT"';
+    exec_at('drop trigger "' || l_tab_owner || '"."' || l_tab_name || '_JCT"');
+    commit;
   end;
   
   function get_col_val_(p_tab_id in number, p_col_id in number, p_row_id in number, p_time in timestamp with time zone) return varchar2
@@ -892,7 +895,7 @@ is
                            and l.row_id = p_row_id
                            and l.time <= sys_extract_utc(c_time)
                            and l.col_id = p_col_id
-                      order by l.tab_id desc, l.row_id desc, l.time desc, l.col_id desc, l.ch_id desc) where rownum = 1)
+                      order by l.tab_id desc, l.row_id desc, l.col_id desc, l.time desc, l.ch_id desc) where rownum = 1)
       loop
         l_col_val := i.col_val;
       end loop;
@@ -905,27 +908,26 @@ is
     c_time constant timestamp with time zone := coalesce(p_time, systimestamp());
     l_obj# number;
     l_tab_col t_jour_tab_col%rowtype;
-    l_col_val t_jour_val.col_val%type;
   begin
     l_obj# := get_tab_obj#(p_tab_name);
     l_tab_col := get_tab_col(l_obj#, p_col_name);
-    return get_col_val(l_tab_col.tab_id, l_tab_col.id, p_row_id, c_time); 
+    return get_col_val_(l_tab_col.tab_id, l_tab_col.id, p_row_id, c_time); 
   end;
   
   function get_row_val(p_tab_name in varchar2, p_row_id in number, p_time in timestamp with time zone) return te_row_t
   is
-    c_time constant timestamp with time zone := coalesce(p_time, systimestamp());
     l_obj# number;
+    l_idx_ varchar2(192);
     l_idx varchar2(192);
     l_tab_col t_jour_tab_col%rowtype;
     l_row_t te_row_t;
   begin
     l_obj# := get_tab_obj#(p_tab_name);
     init_tab_t(l_obj#);
-    l_idx := l_obj# || '*';
-    l_idx := g_tab_col_t.next(l_idx);
-    loop
-      exit when l_idx is null;
+    l_idx_ := l_obj# || '*';
+    l_idx := g_tab_col_t.next(l_idx_);
+    l_idx_ := l_idx_ || '%';
+    while l_idx like l_idx_ loop
       l_tab_col := g_tab_col_t(l_idx);
       l_row_t(l_tab_col.name) := get_col_val_(l_tab_col.tab_id, l_tab_col.id, p_row_id, p_time);
       l_idx := g_tab_col_t.next(l_idx);

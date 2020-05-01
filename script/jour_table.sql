@@ -7,10 +7,10 @@ create table t_jour_val
   row_id number not null,
   col_id number not null,
   col_val varchar2(2000),
-  constraint jrvl_pk primary key (tab_id, row_id, time, ch_id, col_id)
+  constraint jrvl_pk primary key (tab_id, row_id, col_id, time, ch_id)
 )
 organization index logging compress 4 including col_val overflow storage(initial 0k) logging
-partition by list (tab_id)
+partition by list (col_id)
 (
   partition empty_lp values (0)
 );
@@ -52,14 +52,12 @@ alter table t_jour_val_ext add constraint jrvlet_pk primary key (ch_id);
 
 create table t_jour_tab ( 
   id number(8) not null, 
-  obj# number not null,
-  seq number default 0 not null
+  obj# number not null
 ) logging;
 
 comment on table t_jour_tab is 'Таблица журнала';
 comment on column t_jour_tab.id is 'Идентификатор';
 comment on column t_jour_tab.obj# is 'Идентификатор объекта';
-comment on column t_jour_tab.seq is 'Максимальная позиция колонки';
 
 create unique index jrtb_oj_unq on t_jour_tab(obj# asc) logging;
 create unique index jrtb_pk on t_jour_tab(id asc) logging ;
@@ -69,7 +67,6 @@ alter table t_jour_tab add constraint jrtb_pk primary key (id) using index jrtb_
 create table t_jour_tab_col (
   id number(8) not null,
   tab_id number(8) not null,
-  seq number(4) not null,
   name varchar2(128 byte) not null,
   data_typ varchar2(128) not null,
   read_opt varchar2(1 byte) default 'N' not null,
@@ -83,7 +80,6 @@ alter table t_jour_tab_col add check (act in ('N', 'Y'));
 comment on table t_jour_tab_col is 'Колонка таблицы журнала';
 comment on column t_jour_tab_col.id is 'Идентификатор';
 comment on column t_jour_tab_col.tab_id is 'Идентификатор таблицы';
-comment on column t_jour_tab_col.seq is 'Позиция';
 comment on column t_jour_tab_col.name is 'Наименование';
 comment on column t_jour_tab_col.data_typ is 'Тип данных';
 comment on column t_jour_tab_col.read_opt is 'Оптимизировать для чтения';
