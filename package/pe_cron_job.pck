@@ -747,7 +747,7 @@ is
         elsif l_date_ > l_date then
           reset(3);
         end if;
-        l_date := l_date_;
+        l_date := coalesce(l_date_, l_date);
         l_level := 4;
       end if;
       
