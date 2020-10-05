@@ -20,7 +20,7 @@ is
    * @param p_time Время изменения.
    * @param p_tab_id Идентификатор таблицы.
    */
-  procedure put_line(p_row_id in number, p_time in timestamp);
+  procedure put_line(p_row_id in number, p_time in timestamp with time zone);
 
   /**
    * Добавление изменения колонки.
@@ -436,7 +436,7 @@ is
     int_flush(0);
   end;
   
-  procedure put_line(p_row_id in number, p_time in timestamp)
+  procedure put_line(p_row_id in number, p_time in timestamp with time zone)
   is
   begin
     int_flush(256);

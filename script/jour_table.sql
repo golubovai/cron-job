@@ -32,17 +32,15 @@ comment on column t_jour_val.col_id
 
 create table t_jour_val_ext ( 
   ch_id number(38) not null, 
-  time timestamp not null, 
-  time_utc timestamp as (sys_extract_utc(time)) virtual, 
+  time timestamp(6) not null, 
   machine varchar2(64 byte), 
   os_user varchar2(128 byte) 
 ) 
-logging partition by range ( time_utc ) interval (numtodsinterval(1, 'day')) (partition values less than (to_date('01.10.2019','dd.mm.yyyy')));
+logging partition by range ( time ) interval (numtodsinterval(1, 'day')) (partition values less than (to_date('01.10.2019','dd.mm.yyyy')));
 
 comment on table t_jour_val_ext is 'Информация изменения журнала';
 comment on column t_jour_val_ext.ch_id is 'Идентификатор изменения';
 comment on column t_jour_val_ext.time is 'Время';
-comment on column t_jour_val_ext.time_utc is 'Время (Utc)';
 comment on column t_jour_val_ext.machine is 'Наименование компьютера пользователя';
 comment on column t_jour_val_ext.os_user is 'Имя пользователя операционной системы';
 alter table t_jour_val_ext add constraint jrvlet_pk primary key (ch_id);
