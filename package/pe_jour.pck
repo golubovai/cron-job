@@ -315,7 +315,7 @@ is
   begin
     if not g_tab_t.exists(p_obj#) or g_tab_t(p_obj#).expire < c_time then
       l_idx := g_tab_col_t.next(p_obj# || '*');
-      while not l_idx is null loop
+      while l_idx like p_obj# || '*%' loop
         g_tab_col_t.delete(l_idx);
         l_idx := g_tab_col_t.next(l_idx);
       end loop;
